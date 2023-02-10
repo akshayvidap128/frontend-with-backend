@@ -1,0 +1,10 @@
+{
+    "azureFunctions.deploySubpath": ".",
+    "azureFunctions.scmDoBuildDuringDeployment": true,
+    "azureFunctions.projectLanguage": "Python",
+    "azureFunctions.projectRuntime": "~4",
+    "debug.internalConsoleOptions": "neverOpen",
+    "azureFunctions.projectLanguageModel": 2,
+    "appService.defaultWebAppToDeploy": "/subscriptions/297376f4-8ba1-4ebc-b825-919d68ca3fbd/AppServices/subscriptions/297376f4-8ba1-4ebc-b825-919d68ca3fbd/resourceGroups/rg-insurance001/providers/Microsoft.Web/sites/insurance-api001",
+    "appService.deploySubpath": "."
+}
