@@ -1,34 +1,20 @@
+
 from enum import Enum
-# from os import getenv
+from os import getenv
 from typing import List, Optional
 
 import strawberry
+from dotenv import load_dotenv
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from neo4j import GraphDatabase
 from strawberry.asgi import GraphQL
-# from dotenv import load_dotenv
-from fastapi.middleware.cors import CORSMiddleware
-# load_dotenv()
 
-# AURADB_URI = getenv("AURADB_URI")
-# AURADB_USERNAME = getenv("AURADB_USERNAME")
-# AURADB_PASSWORD = getenv("AURADB_PASSWORD")
-
-# AURADB_URI = "bolt://10.0.0.68:7687"
-# AURADB_USERNAME = "neo4jadmin"
-# AURADB_PASSWORD = "Password@12345"
+load_dotenv()
 
 NEO4J_URI = "neo4j+s://b3ae5671.databases.neo4j.io"
 NEO4J_USERNAME = "neo4j"
 NEO4J_PASSWORD = "shjNiQeFKr04HdXP0ADJUAtj_HZv7aTKrTdDjQh9vH8"
-
-# NEO4J_URI = "neo4j://20.228.147.220:7687"
-# NEO4J_USERNAME = "neo4j"
-# NEO4J_PASSWORD = "Password@12345"
-
-# NEO4J_URI = "neo4j+s://be949469.databases.neo4j.io"
-# NEO4J_USERNAME = "neo4j"
-# NEO4J_PASSWORD = "h4QRaU8wA8mYwK3A0TJ0vaXGZOfvGK62dDJBnPMI4Ec"
 
 
 def _and(cur_filter, new_filter):
@@ -97,11 +83,11 @@ class SaveAnswersInput:
 @strawberry.type
 class Question:
     uuid: str
+    sectionUuid: str
     order: str
     type: str
     questionString: str
     role: str
-    sectionUuid: str
     answer: Optional[Answer]
 
     @classmethod
@@ -109,44 +95,12 @@ class Question:
         answer = answer if answer is None else Answer.marshal(answer)
         return cls(
             uuid=question['uuid'],
+            sectionUuid=question['section_uuid'],
             order=question['order'],
             type=question['type'],
             questionString=question['question_string'],
             role=question['role'],
-            sectionUuid=question['section_uuid'],
             answer=answer
-        )
-
-
-@strawberry.type
-class Section:
-    uuid: str
-    name: str
-    createdAt: str
-    updatedAt: str
-    order: str
-    questions: List[Question]
-
-    @classmethod
-    def marshal(cls, section) -> "Section":
-
-        questions = section.get('questions')
-        print("Questions:", questions)
-        questions = questions if questions else []
-        print("Application_Questions", questions)
-
-        return cls(
-            uuid=section['uuid'],
-            name=section['name'],
-            createdAt=section['created_at'],
-            updatedAt=section['updated_at'],
-            order=section['order'],
-            questions=[
-                Question.marshal(
-                    question.get('question'), question.get('answer')
-                )
-                for question in questions
-            ]
         )
 
 
@@ -157,15 +111,15 @@ class Application:
     version: str
     createdAt: str
     updatedAt: str
-    sections: List[Section]
+    questions: List[Question]
 
     @classmethod
-    def marshal(cls, application) -> "Section":
+    def marshal(cls, application) -> "Application":
 
-        sections = application.get('sections')
-        print("sections:", sections)
-        sections = sections if sections else []
-        print("Application_sections", sections)
+        questions = application.get('questions')
+        print("Questions:", questions)
+        questions = questions if questions else []
+        print("Application_Questions", questions)
 
         return cls(
             uuid=application['uuid'],
@@ -173,11 +127,11 @@ class Application:
             version=application['version'],
             createdAt=application['created_at'],
             updatedAt=application['updated_at'],
-            sections=[
-                Section.marshal(
-                    section.get('section')
+            questions=[
+                Question.marshal(
+                    question.get('question'), question.get('answer')
                 )
-                for section in sections
+                for question in questions
             ]
         )
 
@@ -261,7 +215,7 @@ class Query:
     def getUserQuestions(self) -> List[Question]:
         with graph.session() as session:
             query = """
-                MATCH (a:Application)--(q:Question)
+                match (a:Application)--(q:Question)
                 WHERE q.role = "User"
                 RETURN q
             """
@@ -276,7 +230,7 @@ class Query:
     def getAppeaserQuestions(self) -> List[Question]:
         with graph.session() as session:
             query = """
-                MATCH (a:Application)--(q:Question)
+                MATCH (q:Question)
                 WHERE q.role = "User" OR q.role = "Appeaser"
                 RETURN q
             """
@@ -291,7 +245,7 @@ class Query:
     def getManagerQuestions(self) -> List[Question]:
         with graph.session() as session:
             query = """
-                MATCH (a:Application)--(q:Question)
+                MATCH (q:Question)
                 WHERE q.role = "User" OR q.role = "Appeaser"
                 OR q.role = "Manager"
                 RETURN q
@@ -300,20 +254,6 @@ class Query:
         return [
             Question.marshal(
                 row['q']
-            ) for row in rows
-        ]
-
-    @strawberry.field()
-    def getSections(self) -> List[Section]:
-        with graph.session() as session:
-            query = """
-                MATCH (s:Section)
-                RETURN s
-            """
-            rows = session.run(query).data()
-        return [
-            Section.marshal(
-                row['s']
             ) for row in rows
         ]
 
@@ -414,13 +354,12 @@ class Mutation:
     def createQuestion(
         self, applicationUuid: str, questionString: str, type: str,
         sectionUuid: str, role: str
-    ) -> Optional[Question]:
+            ) -> Optional[Question]:
 
         with graph.session() as session:
             max_query = f"""
                 MATCH (q:Question)
-                Match (s:Section) where s.uuid = '{sectionUuid}'
-                match (s)--(q)
+                WHERE q.section_uuid = '{sectionUuid}'
                 RETURN max(toInteger(q.order))+1 as order
             """
             orderRec = session.run(max_query).data()
@@ -428,15 +367,14 @@ class Mutation:
             order = y[0]
             query = f"""
                     MATCH (a:Application) where a.uuid =  '{applicationUuid}'
-                    MATCH (s:Section) WHERE s.uuid = '{sectionUuid}'
                     CREATE (q:Question) SET
                     q.question_string = '{questionString}',
                     q.type = '{type}',
                     q.order = '{order}',
-                    q.role ='{role}',
                     q.section_uuid = '{sectionUuid}',
+                    q.role ='{role}',
                     q.uuid = apoc.create.uuid()
-                    MERGE (s)-[r:HAS_QUESTION]->(q)<-[r1:HAS_QUESTION]-(a)
+                    MERGE (a)-[r:HAS_QUESTION]->(q)
                     RETURN q
                 """
             row = session.run(query).single()
@@ -460,67 +398,39 @@ class Mutation:
             row = session.run(query).single()
         return ApplicantForm.marshal(row['a'])
 
-    @strawberry.mutation()
-    def createSection(
-        self, applicationUuid: str, sectionName: str
-    ) -> Optional[Section]:
-
-        with graph.session() as session:
-            max_query = f"""
-                MATCH (a:Application) where a.uuid= '{applicationUuid}'
-                Match (s:Section)
-                match (a)--(s)
-                RETURN max(toInteger(s.order))+100 as order
-            """
-            orderRec = session.run(max_query).data()
-            y = [x['order'] for x in orderRec]
-            order = y[0]
-            print("order", order)
-            query = f"""
-                    MATCH (a:Application) where a.uuid =  '{applicationUuid}'
-                    CREATE (s:Section) SET
-                    s.name = '{sectionName}',
-                    s.order = '{order}',
-                    s.uuid = apoc.create.uuid(),
-                    s.created_at = datetime(),
-                    s.updated_at = datetime()
-                    MERGE (a)-[r:HAS_Section]->(s)
-                    RETURN s
-                """
-            row = session.run(query).single()
-        return Section.marshal(row['s'])
-
     @strawberry.mutation
     def sendMessage(
-        self, data: str
-    ) -> str:
+                self, data: str
+            ) -> str:
         return "Hello World"
 
 
 schema = strawberry.Schema(query=Query, mutation=Mutation)
+graphql_app = GraphQL(schema)
 graph = GraphDatabase.driver(
     NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD)
 )
 
+origins = ["FE_APP_URLS", "http://localhost:3000", "http://frontend:3000",           "https://sst-insurance-neo4j-frontend.azurewebsites.net", "https://40.76.233.70"]
+
 
 def create_app() -> FastAPI:
-    graphql_app = GraphQL(schema)
     app = FastAPI()
     app.add_middleware(
-        CORSMiddleware,
-        allow_headers=["*"],
-        allow_origins=["*"],
-        allow_methods=["*"]
+    CORSMiddleware,
+    allow_headers=["*"],
+    allow_methods=["*"],
+    allow_credentials=True,
+    allow_origins=origins
     )
 
-    @app.middleware("http")
+    app.middleware("http")
     def my_middleware(request: Request, call_next):
         response = call_next(request)
         return response
 
-    app.add_route("/graphql", graphql_app) 
+    app.add_route("/graphql", graphql_app)
     return app
-    graph.close()
 
 
 app = create_app()
